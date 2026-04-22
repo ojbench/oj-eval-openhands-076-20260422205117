@@ -73,13 +73,22 @@ class MyList {
         return kth_raw(t->r, k - lsz - 1);
     }
 
+    static std::shared_ptr<Node> clone_tree(const std::shared_ptr<Node>& t) {
+        if (!t) return nullptr;
+        auto l = clone_tree(t->l);
+        auto r = clone_tree(t->r);
+        auto n = std::make_shared<Node>(t->val, t->pri, l, r);
+        pull(n);
+        return n;
+    }
+
 public:
     MyList() = default;
     MyList(MyList &&obj) noexcept : root(std::move(obj.root)) {}
-    MyList(const MyList &obj) : root(obj.root) {}
+    MyList(const MyList &obj) : root(obj.root ? clone_tree(obj.root) : nullptr) {}
     ~MyList() = default;
 
-    MyList& operator=(const MyList& other) { root = other.root; return *this; }
+    MyList& operator=(const MyList& other) { root = other.root ? clone_tree(other.root) : nullptr; return *this; }
     MyList& operator=(MyList&& other) noexcept { root = std::move(other.root); return *this; }
 
     void push_back(const ValueType &value) {
