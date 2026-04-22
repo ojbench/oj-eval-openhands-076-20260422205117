@@ -1,49 +1,133 @@
-#include <vector>
-#include <algorithm>
+#include <memory>
+#include <cstdint>
 
 template<typename ValueType>
 class MyList {
-    std::vector<ValueType> v;
+    struct Node {
+        ValueType val;
+        uint32_t pri;
+        int sz;
+        std::shared_ptr<Node> l, r;
+        Node(const ValueType& v, uint32_t p,
+             std::shared_ptr<Node> left = nullptr,
+             std::shared_ptr<Node> right = nullptr)
+            : val(v), pri(p), l(std::move(left)), r(std::move(right)) {
+            sz = 1 + getsz(l) + getsz(r);
+        }
+    };
+
+    std::shared_ptr<Node> root;
+
+    static uint32_t rng() {
+        static uint32_t x = 0x9e3779b9u;
+        x ^= x << 13; x ^= x >> 17; x ^= x << 5;
+        return x ? x : 1u;
+    }
+
+    static int getsz(const std::shared_ptr<Node>& t) { return t ? t->sz : 0; }
+
+    static void pull(const std::shared_ptr<Node>& t) {
+        if (t) t->sz = 1 + getsz(t->l) + getsz(t->r);
+    }
+
+    static void split(const std::shared_ptr<Node>& t, int k,
+                      std::shared_ptr<Node>& a, std::shared_ptr<Node>& b) {
+        if (!t) { a = b = nullptr; return; }
+        int lsz = getsz(t->l);
+        if (k <= lsz) {
+            std::shared_ptr<Node> nl, nr;
+            split(t->l, k, nl, nr);
+            b = std::make_shared<Node>(t->val, t->pri, nr, t->r);
+            pull(b);
+            a = nl;
+        } else {
+            std::shared_ptr<Node> nl, nr;
+            split(t->r, k - lsz - 1, nl, nr);
+            a = std::make_shared<Node>(t->val, t->pri, t->l, nl);
+            pull(a);
+            b = nr;
+        }
+    }
+
+    static std::shared_ptr<Node> merge(const std::shared_ptr<Node>& a,
+                                       const std::shared_ptr<Node>& b) {
+        if (!a) return b;
+        if (!b) return a;
+        if (a->pri > b->pri) {
+            auto nr = merge(a->r, b);
+            auto t = std::make_shared<Node>(a->val, a->pri, a->l, nr);
+            pull(t);
+            return t;
+        } else {
+            auto nl = merge(a, b->l);
+            auto t = std::make_shared<Node>(b->val, b->pri, nl, b->r);
+            pull(t);
+            return t;
+        }
+    }
+
+    static Node* kth_raw(const std::shared_ptr<Node>& t, int k) {
+        int lsz = getsz(t->l);
+        if (k < lsz) return kth_raw(t->l, k);
+        if (k == lsz) return t.get();
+        return kth_raw(t->r, k - lsz - 1);
+    }
+
 public:
     MyList() = default;
-    MyList(MyList &&obj) noexcept : v(std::move(obj.v)) {}
-    MyList(const MyList &obj) : v(obj.v) {}
+    MyList(MyList &&obj) noexcept : root(std::move(obj.root)) {}
+    MyList(const MyList &obj) : root(obj.root) {}
     ~MyList() = default;
 
-    MyList& operator=(const MyList& other) { v = other.v; return *this; }
-    MyList& operator=(MyList&& other) noexcept { v = std::move(other.v); return *this; }
+    MyList& operator=(const MyList& other) { root = other.root; return *this; }
+    MyList& operator=(MyList&& other) noexcept { root = std::move(other.root); return *this; }
 
-    void push_back(const ValueType &value) { v.push_back(value); }
-    void pop_back() { if (!v.empty()) v.pop_back(); }
-    void push_front(const ValueType &value) { v.insert(v.begin(), value); }
-    void pop_front() { if (!v.empty()) v.erase(v.begin()); }
-
-    ValueType &front() const { return const_cast<ValueType&>(v.front()); }
-    ValueType &back() const { return const_cast<ValueType&>(v.back()); }
+    void push_back(const ValueType &value) {
+        auto node = std::make_shared<Node>(value, rng());
+        root = merge(root, node);
+    }
+    void pop_back() {
+        int n = size(); if (n == 0) return;
+        std::shared_ptr<Node> a, b; split(root, n-1, a, b);
+        root = a;
+    }
+    void push_front(const ValueType &value) {
+        auto node = std::make_shared<Node>(value, rng());
+        root = merge(node, root);
+    }
+    void pop_front() {
+        if (!root) return;
+        std::shared_ptr<Node> a, b; split(root, 1, a, b);
+        root = b;
+    }
+    ValueType &front() const { return const_cast<ValueType&>(kth_raw(root, 0)->val); }
+    ValueType &back() const { return const_cast<ValueType&>(kth_raw(root, size()-1)->val); }
 
     void insert(int index,const ValueType &value) {
-        if (index <= 0) v.insert(v.begin(), value);
-        else if (index >= (int)v.size()) v.push_back(value);
-        else v.insert(v.begin()+index, value);
+        if (index <= 0) { push_front(value); return; }
+        if (index >= size()) { push_back(value); return; }
+        std::shared_ptr<Node> a, b; split(root, index, a, b);
+        auto node = std::make_shared<Node>(value, rng());
+        root = merge(merge(a, node), b);
     }
     void erase(int index) {
-        if (index < 0 || index >= (int)v.size()) return;
-        v.erase(v.begin()+index);
+        if (index < 0 || index >= size()) return;
+        std::shared_ptr<Node> a, b, c; split(root, index, a, b); split(b, 1, b, c);
+        root = merge(a, c);
     }
 
-    int size() const { return static_cast<int>(v.size()); }
-    bool empty() const { return v.empty(); }
-    void clear() { v.clear(); }
+    int size() const { return getsz(root); }
+    bool empty() const { return !root; }
+    void clear() { root.reset(); }
 
     void link(const MyList &obj) {
-        v.insert(v.end(), obj.v.begin(), obj.v.end());
+        root = merge(root, obj.root);
     }
     MyList cut(int index) {
         MyList right;
-        if (index <= 0) { right.v = std::move(v); v.clear(); return right; }
-        if (index >= (int)v.size()) return right;
-        right.v.assign(v.begin()+index, v.end());
-        v.resize(index);
-        return right;
+        if (index <= 0) { right.root = std::move(root); return right; }
+        if (index >= size()) return right;
+        std::shared_ptr<Node> a, b; split(root, index, a, b);
+        root = a; right.root = b; return right;
     }
 };
