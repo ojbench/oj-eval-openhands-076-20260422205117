@@ -4,195 +4,140 @@
 template<typename ValueType>
 class MyList {
     struct Node {
-        ValueType value;
-        Node* prev;
-        Node* next;
-        Node(const ValueType& v, Node* p=nullptr, Node* n=nullptr)
-            : value(v), prev(p), next(n) {}
+        ValueType val;
+        unsigned pri;
+        int sz;
+        Node* l; Node* r;
+        Node(const ValueType& v, unsigned p): val(v), pri(p), sz(1), l(nullptr), r(nullptr) {}
     };
 
-    Node* head_;
-    Node* tail_;
-    int   size_;
+    Node* root = nullptr;
 
-    void init_empty() {
-        head_ = tail_ = nullptr;
-        size_ = 0;
+    static unsigned rng() {
+        static unsigned x = 123456789u;
+        x = x * 1103515245u + 12345u;
+        return x;
     }
 
-    void append_node(Node* node) {
-        if (!head_) {
-            head_ = tail_ = node;
-            node->prev = node->next = nullptr;
+    static int getsz(Node* t) { return t ? t->sz : 0; }
+    static void pull(Node* t) { if (t) t->sz = 1 + getsz(t->l) + getsz(t->r); }
+
+    static void split(Node* t, int k, Node*& a, Node*& b) {
+        if (!t) { a = b = nullptr; return; }
+        if (getsz(t->l) >= k) {
+            split(t->l, k, a, t->l);
+            b = t; pull(b);
         } else {
-            tail_->next = node;
-            node->prev = tail_;
-            node->next = nullptr;
-            tail_ = node;
+            split(t->r, k - getsz(t->l) - 1, t->r, b);
+            a = t; pull(a);
         }
-        ++size_;
     }
 
-    Node* nth_node(int index) const {
-        if (index < 0 || index >= size_) return nullptr;
-        if (index <= size_/2) {
-            Node* cur = head_;
-            for (int i=0;i<index;++i) cur = cur->next;
-            return cur;
+    static Node* merge(Node* a, Node* b) {
+        if (!a || !b) return a ? a : b;
+        if (a->pri > b->pri) {
+            a->r = merge(a->r, b); pull(a); return a;
         } else {
-            Node* cur = tail_;
-            for (int i=size_-1;i>index;--i) cur = cur->prev;
-            return cur;
+            b->l = merge(a, b->l); pull(b); return b;
         }
+    }
+
+    static Node* kth(Node* t, int k) {
+        int lsz = getsz(t->l);
+        if (k < lsz) return kth(t->l, k);
+        if (k == lsz) return t;
+        return kth(t->r, k - lsz - 1);
+    }
+
+    static void destroy(Node* t) {
+        if (!t) return;
+        destroy(t->l); destroy(t->r); delete t;
+    }
+
+    static Node* clone(Node* t) {
+        if (!t) return nullptr;
+        Node* n = new Node(t->val, rng());
+        n->l = clone(t->l);
+        n->r = clone(t->r);
+        pull(n);
+        return n;
     }
 
 public:
-    MyList() { init_empty(); }
-
-    MyList(MyList &&obj) noexcept : head_(obj.head_), tail_(obj.tail_), size_(obj.size_) {
-        obj.init_empty();
-    }
-
-    MyList(const MyList &obj) : head_(nullptr), tail_(nullptr), size_(0) {
-        for (Node* cur = obj.head_; cur; cur = cur->next) {
-            append_node(new Node(cur->value));
-        }
-    }
-
+    MyList() = default;
+    MyList(MyList &&obj) noexcept : root(obj.root) { obj.root = nullptr; }
+    MyList(const MyList &obj) : root(clone(obj.root)) {}
     ~MyList() { clear(); }
 
     MyList& operator=(const MyList& other) {
         if (this == &other) return *this;
         clear();
-        for (Node* cur = other.head_; cur; cur = cur->next) {
-            append_node(new Node(cur->value));
-        }
+        root = clone(other.root);
         return *this;
     }
-
     MyList& operator=(MyList&& other) noexcept {
         if (this == &other) return *this;
         clear();
-        head_ = other.head_;
-        tail_ = other.tail_;
-        size_ = other.size_;
-        other.init_empty();
+        root = other.root; other.root = nullptr;
         return *this;
     }
 
     void push_back(const ValueType &value) {
-        append_node(new Node(value));
+        Node* node = new Node(value, rng());
+        root = merge(root, node);
     }
-
     void pop_back() {
-        if (!tail_) return;
-        Node* t = tail_;
-        tail_ = tail_->prev;
-        if (tail_) tail_->next = nullptr; else head_ = nullptr;
-        delete t;
-        --size_;
+        if (!root) return;
+        Node *a, *b;
+        split(root, size()-1, a, b);
+        if (b) { delete b; b = nullptr; }
+        root = merge(a, b);
     }
-
     void push_front(const ValueType &value) {
-        Node* node = new Node(value);
-        if (!head_) {
-            head_ = tail_ = node;
-        } else {
-            node->next = head_;
-            head_->prev = node;
-            head_ = node;
-        }
-        ++size_;
+        Node* node = new Node(value, rng());
+        root = merge(node, root);
     }
-
     void pop_front() {
-        if (!head_) return;
-        Node* h = head_;
-        head_ = head_->next;
-        if (head_) head_->prev = nullptr; else tail_ = nullptr;
-        delete h;
-        --size_;
+        if (!root) return;
+        Node *a, *b;
+        split(root, 1, a, b);
+        if (a) { delete a; a = nullptr; }
+        root = merge(nullptr, b);
     }
-
     ValueType &front() const {
-        // Note: method is const, but returns non-const ref per spec
-        return const_cast<ValueType&>(head_->value);
+        return const_cast<ValueType&>(kth(root, 0)->val);
     }
-
     ValueType &back() const {
-        return const_cast<ValueType&>(tail_->value);
+        return const_cast<ValueType&>(kth(root, size()-1)->val);
     }
-
     void insert(int index,const ValueType &value) {
         if (index <= 0) { push_front(value); return; }
-        if (index >= size_) { push_back(value); return; }
-        Node* pos = nth_node(index);
-        Node* node = new Node(value);
-        node->next = pos;
-        node->prev = pos->prev;
-        if (pos->prev) pos->prev->next = node; else head_ = node;
-        pos->prev = node;
-        ++size_;
+        if (index >= size()) { push_back(value); return; }
+        Node *a, *b; split(root, index, a, b);
+        Node* node = new Node(value, rng());
+        root = merge(merge(a, node), b);
     }
-
     void erase(int index) {
-        if (index < 0 || index >= size_) return;
-        if (index == 0) { pop_front(); return; }
-        if (index == size_-1) { pop_back(); return; }
-        Node* pos = nth_node(index);
-        if (!pos) return;
-        pos->prev->next = pos->next;
-        pos->next->prev = pos->prev;
-        delete pos;
-        --size_;
+        if (index < 0 || index >= size()) return;
+        Node *a, *b, *c;
+        split(root, index, a, b);
+        split(b, 1, b, c);
+        if (b) { delete b; b = nullptr; }
+        root = merge(a, c);
     }
-
-    int size() const { return size_; }
-
-    bool empty() const { return size_ == 0; }
-
-    void clear() {
-        Node* cur = head_;
-        while (cur) {
-            Node* nxt = cur->next;
-            delete cur;
-            cur = nxt;
-        }
-        init_empty();
-    }
+    int size() const { return getsz(root); }
+    bool empty() const { return root == nullptr; }
+    void clear() { destroy(root); root = nullptr; }
 
     void link(const MyList &obj) {
-        for (Node* cur = obj.head_; cur; cur = cur->next) {
-            append_node(new Node(cur->value));
-        }
+        Node* cloned = clone(obj.root);
+        root = merge(root, cloned);
     }
-
     MyList cut(int index) {
         MyList right;
-        if (index <= 0) {
-            // move all to right
-            right.head_ = head_;
-            right.tail_ = tail_;
-            right.size_ = size_;
-            init_empty();
-            return right;
-        }
-        if (index >= size_) {
-            return right; // empty
-        }
-        Node* cut_pos = nth_node(index);
-        Node* left_tail = cut_pos->prev;
-        // Detach right part
-        right.head_ = cut_pos;
-        right.tail_ = tail_;
-        // compute sizes
-        right.size_ = size_ - index;
-        size_ = index;
-
-        // fix links
-        if (left_tail) left_tail->next = nullptr;
-        cut_pos->prev = nullptr;
-        tail_ = left_tail;
-        return right;
+        if (index <= 0) { right.root = root; root = nullptr; return right; }
+        if (index >= size()) return right;
+        Node *a, *b; split(root, index, a, b);
+        root = a; right.root = b; return right;
     }
 };
