@@ -1,185 +1,49 @@
 #include <vector>
-#include <utility>
+#include <algorithm>
 
 template<typename ValueType>
 class MyList {
-    struct Node {
-        ValueType val;
-        unsigned pri;
-        int sz;
-        Node* l; Node* r;
-        Node(const ValueType& v, unsigned p): val(v), pri(p), sz(1), l(nullptr), r(nullptr) {}
-    };
-
-    Node* root = nullptr;
-
-    static unsigned rng() {
-        static unsigned x = 123456789u;
-        x = x * 1103515245u + 12345u;
-        return x;
-    }
-
-    static int getsz(Node* t) { return t ? t->sz : 0; }
-    static void pull(Node* t) { if (t) t->sz = 1 + getsz(t->l) + getsz(t->r); }
-
-    static void split(Node* t, int k, Node*& a, Node*& b) {
-        if (!t) { a = b = nullptr; return; }
-        if (getsz(t->l) >= k) {
-            split(t->l, k, a, t->l);
-            b = t; pull(b);
-        } else {
-            split(t->r, k - getsz(t->l) - 1, t->r, b);
-            a = t; pull(a);
-        }
-    }
-
-    static Node* merge(Node* a, Node* b) {
-        if (!a || !b) return a ? a : b;
-        if (a->pri > b->pri) {
-            a->r = merge(a->r, b); pull(a); return a;
-        } else {
-            b->l = merge(a, b->l); pull(b); return b;
-        }
-    }
-
-    static Node* kth(Node* t, int k) {
-        int lsz = getsz(t->l);
-        if (k < lsz) return kth(t->l, k);
-        if (k == lsz) return t;
-        return kth(t->r, k - lsz - 1);
-    }
-
-    static void destroy(Node* t) {
-        if (!t) return;
-        destroy(t->l); destroy(t->r); delete t;
-    }
-
-    static void inorder_collect(Node* t, std::vector<ValueType>& out) {
-        std::vector<Node*> st;
-        Node* cur = t;
-        while (cur || !st.empty()) {
-            while (cur) { st.push_back(cur); cur = cur->l; }
-            Node* x = st.back(); st.pop_back();
-            out.push_back(x->val);
-            cur = x->r;
-        }
-    }
-
-    static Node* build_from_values(const std::vector<ValueType>& vals) {
-        if (vals.empty()) return nullptr;
-        std::vector<Node*> nodes; nodes.reserve(vals.size());
-        for (auto &v : vals) nodes.push_back(new Node(v, rng()));
-        std::vector<Node*> st;
-        Node* root = nullptr;
-        for (Node* x : nodes) {
-            Node* last = nullptr;
-            while (!st.empty() && st.back()->pri < x->pri) {
-                last = st.back(); st.pop_back();
-            }
-            x->l = last;
-            if (!st.empty()) st.back()->r = x; else root = x;
-            st.push_back(x);
-        }
-        // compute sizes via iterative post-order
-        std::vector<std::pair<Node*, int>> ps; ps.reserve(nodes.size());
-        ps.push_back({root, 0});
-        while (!ps.empty()) {
-            auto &bk = ps.back();
-            Node* u = bk.first;
-            if (bk.second == 0) {
-                bk.second = 1;
-                if (u->l) ps.push_back({u->l, 0});
-                if (u->r) ps.push_back({u->r, 0});
-            } else {
-                pull(u);
-                ps.pop_back();
-            }
-        }
-        return root;
-    }
-
+    std::vector<ValueType> v;
 public:
     MyList() = default;
-    MyList(MyList &&obj) noexcept : root(obj.root) { obj.root = nullptr; }
-    MyList(const MyList &obj) : root(nullptr) {
-        if (obj.root) {
-            std::vector<ValueType> vals; vals.reserve(getsz(obj.root));
-            inorder_collect(obj.root, vals);
-            root = build_from_values(vals);
-        }
-    }
-    ~MyList() { clear(); }
+    MyList(MyList &&obj) noexcept : v(std::move(obj.v)) {}
+    MyList(const MyList &obj) : v(obj.v) {}
+    ~MyList() = default;
 
-    MyList& operator=(const MyList& other) {
-        if (this == &other) return *this;
-        clear();
-        if (other.root) {
-            std::vector<ValueType> vals; vals.reserve(getsz(other.root));
-            inorder_collect(other.root, vals);
-            root = build_from_values(vals);
-        }
-        return *this;
-    }
-    MyList& operator=(MyList&& other) noexcept {
-        if (this == &other) return *this;
-        clear();
-        root = other.root; other.root = nullptr;
-        return *this;
-    }
+    MyList& operator=(const MyList& other) { v = other.v; return *this; }
+    MyList& operator=(MyList&& other) noexcept { v = std::move(other.v); return *this; }
 
-    void push_back(const ValueType &value) {
-        Node* node = new Node(value, rng());
-        root = merge(root, node);
-    }
-    void pop_back() {
-        if (!root) return;
-        Node *a, *b; split(root, size()-1, a, b);
-        if (b) delete b;
-        root = a;
-    }
-    void push_front(const ValueType &value) {
-        Node* node = new Node(value, rng());
-        root = merge(node, root);
-    }
-    void pop_front() {
-        if (!root) return;
-        Node *a, *b; split(root, 1, a, b);
-        if (a) delete a;
-        root = b;
-    }
-    ValueType &front() const { return const_cast<ValueType&>(kth(root, 0)->val); }
-    ValueType &back() const { return const_cast<ValueType&>(kth(root, size()-1)->val); }
+    void push_back(const ValueType &value) { v.push_back(value); }
+    void pop_back() { if (!v.empty()) v.pop_back(); }
+    void push_front(const ValueType &value) { v.insert(v.begin(), value); }
+    void pop_front() { if (!v.empty()) v.erase(v.begin()); }
+
+    ValueType &front() const { return const_cast<ValueType&>(v.front()); }
+    ValueType &back() const { return const_cast<ValueType&>(v.back()); }
 
     void insert(int index,const ValueType &value) {
-        if (index <= 0) { push_front(value); return; }
-        if (index >= size()) { push_back(value); return; }
-        Node *a, *b; split(root, index, a, b);
-        Node* node = new Node(value, rng());
-        root = merge(merge(a, node), b);
+        if (index <= 0) v.insert(v.begin(), value);
+        else if (index >= (int)v.size()) v.push_back(value);
+        else v.insert(v.begin()+index, value);
     }
     void erase(int index) {
-        if (index < 0 || index >= size()) return;
-        Node *a, *b, *c; split(root, index, a, b); split(b, 1, b, c);
-        if (b) delete b;
-        root = merge(a, c);
+        if (index < 0 || index >= (int)v.size()) return;
+        v.erase(v.begin()+index);
     }
 
-    int size() const { return getsz(root); }
-    bool empty() const { return root == nullptr; }
-    void clear() { destroy(root); root = nullptr; }
+    int size() const { return static_cast<int>(v.size()); }
+    bool empty() const { return v.empty(); }
+    void clear() { v.clear(); }
 
     void link(const MyList &obj) {
-        if (!obj.root) return;
-        std::vector<ValueType> vals; vals.reserve(getsz(obj.root));
-        inorder_collect(obj.root, vals);
-        Node* appended = build_from_values(vals);
-        root = merge(root, appended);
+        v.insert(v.end(), obj.v.begin(), obj.v.end());
     }
     MyList cut(int index) {
         MyList right;
-        if (index <= 0) { right.root = root; root = nullptr; return right; }
-        if (index >= size()) return right;
-        Node *a, *b; split(root, index, a, b);
-        root = a; right.root = b; return right;
+        if (index <= 0) { right.v = std::move(v); v.clear(); return right; }
+        if (index >= (int)v.size()) return right;
+        right.v.assign(v.begin()+index, v.end());
+        v.resize(index);
+        return right;
     }
 };
