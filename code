@@ -1,4 +1,4 @@
-#include <cstddef>
+#include <vector>
 #include <utility>
 
 template<typename ValueType>
@@ -54,25 +54,70 @@ class MyList {
         destroy(t->l); destroy(t->r); delete t;
     }
 
-    static Node* clone(Node* t) {
-        if (!t) return nullptr;
-        Node* n = new Node(t->val, rng());
-        n->l = clone(t->l);
-        n->r = clone(t->r);
-        pull(n);
-        return n;
+    static void inorder_collect(Node* t, std::vector<ValueType>& out) {
+        std::vector<Node*> st;
+        Node* cur = t;
+        while (cur || !st.empty()) {
+            while (cur) { st.push_back(cur); cur = cur->l; }
+            Node* x = st.back(); st.pop_back();
+            out.push_back(x->val);
+            cur = x->r;
+        }
+    }
+
+    static Node* build_from_values(const std::vector<ValueType>& vals) {
+        if (vals.empty()) return nullptr;
+        std::vector<Node*> nodes; nodes.reserve(vals.size());
+        for (auto &v : vals) nodes.push_back(new Node(v, rng()));
+        std::vector<Node*> st;
+        Node* root = nullptr;
+        for (Node* x : nodes) {
+            Node* last = nullptr;
+            while (!st.empty() && st.back()->pri < x->pri) {
+                last = st.back(); st.pop_back();
+            }
+            x->l = last;
+            if (!st.empty()) st.back()->r = x; else root = x;
+            st.push_back(x);
+        }
+        // compute sizes via iterative post-order
+        std::vector<std::pair<Node*, int>> ps; ps.reserve(nodes.size());
+        ps.push_back({root, 0});
+        while (!ps.empty()) {
+            auto &bk = ps.back();
+            Node* u = bk.first;
+            if (bk.second == 0) {
+                bk.second = 1;
+                if (u->l) ps.push_back({u->l, 0});
+                if (u->r) ps.push_back({u->r, 0});
+            } else {
+                pull(u);
+                ps.pop_back();
+            }
+        }
+        return root;
     }
 
 public:
     MyList() = default;
     MyList(MyList &&obj) noexcept : root(obj.root) { obj.root = nullptr; }
-    MyList(const MyList &obj) : root(clone(obj.root)) {}
+    MyList(const MyList &obj) : root(nullptr) {
+        if (obj.root) {
+            std::vector<ValueType> vals; vals.reserve(getsz(obj.root));
+            inorder_collect(obj.root, vals);
+            root = build_from_values(vals);
+        }
+    }
     ~MyList() { clear(); }
 
     MyList& operator=(const MyList& other) {
         if (this == &other) return *this;
         clear();
-        root = clone(other.root);
+        if (other.root) {
+            std::vector<ValueType> vals; vals.reserve(getsz(other.root));
+            inorder_collect(other.root, vals);
+            root = build_from_values(vals);
+        }
         return *this;
     }
     MyList& operator=(MyList&& other) noexcept {
@@ -88,10 +133,9 @@ public:
     }
     void pop_back() {
         if (!root) return;
-        Node *a, *b;
-        split(root, size()-1, a, b);
-        if (b) { delete b; b = nullptr; }
-        root = merge(a, b);
+        Node *a, *b; split(root, size()-1, a, b);
+        if (b) delete b;
+        root = a;
     }
     void push_front(const ValueType &value) {
         Node* node = new Node(value, rng());
@@ -99,17 +143,13 @@ public:
     }
     void pop_front() {
         if (!root) return;
-        Node *a, *b;
-        split(root, 1, a, b);
-        if (a) { delete a; a = nullptr; }
-        root = merge(nullptr, b);
+        Node *a, *b; split(root, 1, a, b);
+        if (a) delete a;
+        root = b;
     }
-    ValueType &front() const {
-        return const_cast<ValueType&>(kth(root, 0)->val);
-    }
-    ValueType &back() const {
-        return const_cast<ValueType&>(kth(root, size()-1)->val);
-    }
+    ValueType &front() const { return const_cast<ValueType&>(kth(root, 0)->val); }
+    ValueType &back() const { return const_cast<ValueType&>(kth(root, size()-1)->val); }
+
     void insert(int index,const ValueType &value) {
         if (index <= 0) { push_front(value); return; }
         if (index >= size()) { push_back(value); return; }
@@ -119,19 +159,21 @@ public:
     }
     void erase(int index) {
         if (index < 0 || index >= size()) return;
-        Node *a, *b, *c;
-        split(root, index, a, b);
-        split(b, 1, b, c);
-        if (b) { delete b; b = nullptr; }
+        Node *a, *b, *c; split(root, index, a, b); split(b, 1, b, c);
+        if (b) delete b;
         root = merge(a, c);
     }
+
     int size() const { return getsz(root); }
     bool empty() const { return root == nullptr; }
     void clear() { destroy(root); root = nullptr; }
 
     void link(const MyList &obj) {
-        Node* cloned = clone(obj.root);
-        root = merge(root, cloned);
+        if (!obj.root) return;
+        std::vector<ValueType> vals; vals.reserve(getsz(obj.root));
+        inorder_collect(obj.root, vals);
+        Node* appended = build_from_values(vals);
+        root = merge(root, appended);
     }
     MyList cut(int index) {
         MyList right;
